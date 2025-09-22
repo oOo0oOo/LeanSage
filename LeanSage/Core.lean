@@ -6,10 +6,9 @@ import Mathlib.Analysis.SpecialFunctions.Trigonometric.Basic
 import Mathlib.Analysis.SpecialFunctions.Log.Basic
 import Batteries.Data.Rat.Basic
 import Mathlib.Data.Complex.Basic
-import Mathlib.Data.Matrix.Defs
+import Mathlib.Data.Matrix.Basic
 import Mathlib.LinearAlgebra.Matrix.Determinant.Basic
 import Mathlib.LinearAlgebra.Matrix.Trace
-import Mathlib.Data.Matrix.Rank
 import Mathlib.LinearAlgebra.Matrix.Spectrum
 import Mathlib.Data.Set.Defs
 import Mathlib.Data.Set.Basic
