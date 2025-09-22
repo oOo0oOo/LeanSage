@@ -86,6 +86,7 @@ private partial def xmlToAST (node : XMLNode) : Option MathAST :=
   | XMLNode.selfClosing "pi" => some MathAST.pi
   | XMLNode.selfClosing "e" => some MathAST.e
   | XMLNode.selfClosing "imaginaryi" => some MathAST.complexI
+  | XMLNode.selfClosing "int" => some (MathAST.string "int")
   | XMLNode.selfClosing tag =>
     if tag.trim.isEmpty then none  -- Filter out empty tags
     else
@@ -109,9 +110,8 @@ private partial def xmlToAST (node : XMLNode) : Option MathAST :=
       | "apply" =>
         let (operators, operands) := childASTs.partition (fun ast =>
           match ast with
-          | MathAST.string op => op ∈ ["eq", "plus", "minus", "times", "divide", "power", "root", "cos", "sin", "tan", "exp", "log", "ln"]
+          | MathAST.string op => op ∈ ["eq", "plus", "minus", "times", "divide", "power", "root", "cos", "sin", "tan", "exp", "log", "ln", "si", "int"]
           | _ => false)
-
         match operators with
         | [MathAST.string op] =>
           let result := some (applyOperator op operands)
@@ -143,9 +143,19 @@ private partial def xmlToAST (node : XMLNode) : Option MathAST :=
         match childASTs with
         | [arg] => some (MathAST.func "sqrt" [arg])
         | _ => none
-
       | "list" => some (MathAST.list childASTs)
-
+      | "bvar" =>
+        match childASTs with
+        | [var] => some var
+        | _ => none
+      | "lowlimit" =>
+        match childASTs with
+        | [limit] => some limit
+        | _ => none
+      | "uplimit" =>
+        match childASTs with
+        | [limit] => some limit
+        | _ => none
       | _ =>
         if stringContains tag ":" then
           let cleanTag := getLastAfterColon tag
@@ -231,6 +241,26 @@ where
     | "exp", [x] => MathAST.func "exp" [x]
     | "log", [x] => MathAST.func "log" [x]
     | "ln", [x] => MathAST.func "ln" [x]
+    | "int", operands =>
+      -- Handle integral: int, bvar, lowlimit, uplimit, integrand
+      let rec extractIntegralParts (ops : List MathAST) (var : Option MathAST) (lower : Option MathAST) (upper : Option MathAST) (integrand : Option MathAST) : MathAST :=
+        match ops with
+        | [] =>
+          match var, lower, upper, integrand with
+          | some (MathAST.var varName _), some lowerVal, some upperVal, some expr =>
+            MathAST.integral expr varName (some lowerVal) (some upperVal)
+          | some (MathAST.var varName _), none, none, some expr =>
+            MathAST.integral expr varName none none
+          | _, _, _, some expr => expr
+          | _, _, _, none => MathAST.string "error"
+        | op :: rest =>
+          match op with
+          | MathAST.var _ _ => extractIntegralParts rest (some op) lower upper integrand
+          | _ =>
+            if lower.isNone then extractIntegralParts rest var (some op) upper integrand
+            else if upper.isNone then extractIntegralParts rest var lower (some op) integrand
+            else extractIntegralParts rest var lower upper (some op)
+      extractIntegralParts operands none none none none
     | _, _ =>
       dbg_trace s!"Unknown operator '{op}' with {operands.length} operands: {repr operands}"
       MathAST.string "error"

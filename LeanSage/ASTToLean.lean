@@ -108,6 +108,7 @@ partial def astToLean (ast : MathAST) : String :=
   | .func "tan" [arg] => s!"Real.tan ({astToLean arg})"
   | .func "exp" [arg] => s!"Real.exp ({astToLean arg})"
   | .func "log" [arg] => s!"Real.log ({astToLean arg})"
+  | .func "ln" [arg] => s!"Real.log ({astToLean arg})"
   | .func "real" [arg] => s!"Complex.re ({astToLean arg})"
   | .func "imag" [arg] => s!"Complex.im ({astToLean arg})"
 

@@ -61,7 +61,7 @@ partial def astToSage (ast : MathAST) : String :=
       s!"({argStrs[0]!}).{methodName}()"
 
     match name with
-    | "sqrt" | "sin" | "cos" | "tan" | "exp" | "log" | "gcd" | "lcm" | "factorial" | "binomial" | "is_prime" | "euler_phi" | "abs" | "falling_factorial" | "rising_factorial" =>
+    | "sqrt" | "sin" | "cos" | "tan" | "exp" | "log" | "ln" | "gcd" | "lcm" | "factorial" | "binomial" | "is_prime" | "euler_phi" | "abs" | "falling_factorial" | "rising_factorial" =>
       standardFunc name
     | "real" | "imag" | "numer" | "denom" | "det" | "trace" | "transpose" | "rank" | "inverse" | "charpoly" =>
       methodCall (match name with
