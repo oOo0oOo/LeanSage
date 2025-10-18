@@ -4,7 +4,7 @@ import Mathlib.Data.Real.Basic
 import Mathlib.Data.Real.Sqrt
 import Mathlib.Analysis.SpecialFunctions.Trigonometric.Basic
 import Mathlib.Analysis.SpecialFunctions.Log.Basic
-import Batteries.Data.Rat.Basic
+import Batteries.Data.Rat.Float
 import Mathlib.Data.Complex.Basic
 import Mathlib.Data.Matrix.Basic
 import Mathlib.LinearAlgebra.Matrix.Determinant.Basic
