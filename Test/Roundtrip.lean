@@ -1,6 +1,6 @@
 import LeanSage
 
-open Lean Elab Command Term Meta Polynomial
+open Lean Elab Command Term Meta Polynomial MeasureTheory
 
 elab "test_roundtrip" _id:ident " : " t:term : command => do
   let expr ← Command.liftTermElabM (Term.elabTerm t none)
@@ -117,8 +117,8 @@ test_roundtrip deriv5 : deriv (fun x : ℝ => Real.exp x) 0 = 1
 test_roundtrip fderiv_test : fderiv ℝ (fun x : ℝ => x^2) 3 = 6
 test_roundtrip iterated_deriv1 : iteratedDeriv 2 (fun x : ℝ => x^4) 1 = 12
 test_roundtrip iterated_deriv2 : iteratedDeriv 3 (fun x : ℝ => Real.exp x) 0 = 1
-test_roundtrip indefinite1 : ∫ x : ℝ, x^2 ∂volume = x^3/3
-test_roundtrip indefinite2 : ∫ x : ℝ, Real.sin x ∂volume = -Real.cos x
+test_roundtrip indefinite1 : ∫ x : ℝ, x^2 ∂MeasureSpace.volume
+test_roundtrip indefinite2 : ∫ x : ℝ, Real.sin x ∂MeasureSpace.volume
 test_roundtrip double_integral1 : ∫ x in (0 : ℝ)..(1 : ℝ), ∫ y in (0 : ℝ)..(1 : ℝ), x * y = 1/4
 test_roundtrip complex_integral1 : ∫ x in (0 : ℝ)..(1 : ℝ), x^2 + 2*x + 1 = 7/3
 

@@ -186,7 +186,7 @@ partial def astToLean (ast : MathAST) : String :=
   | .func "integral" [expr, var, lower, upper] =>
     s!"∫ {astToLean var} in ({astToLean lower})..({astToLean upper}), {astToLean expr}"
   | .func "integral" [expr, var] =>
-    s!"∫ {astToLean var}, {astToLean expr} ∂volume"
+    s!"∫ {astToLean var}, {astToLean expr} ∂MeasureSpace.volume"
 
   -- Lambda functions
   | .lambda var _varType body =>
@@ -206,7 +206,7 @@ partial def astToLean (ast : MathAST) : String :=
   | .integral expr var (some lower) (some upper) =>
     s!"∫ {var} in ({astToLean lower})..({astToLean upper}), {astToLean expr}"
   | .integral expr var none none =>
-    s!"∫ {var}, {astToLean expr} ∂volume"
+    s!"∫ {var}, {astToLean expr} ∂MeasureSpace.volume"
   | .integral expr var _ _ =>
     s!"∫ {var}, {astToLean expr}"
 
