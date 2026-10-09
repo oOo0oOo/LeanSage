@@ -1,11 +1,11 @@
 import Lean
 
-import Mathlib.Data.Real.Basic
-import Mathlib.Data.Real.Sqrt
+import Mathlib.Basic.Real.Basic
+import Mathlib.Analysis.Real.Sqrt
 import Mathlib.Analysis.SpecialFunctions.Trigonometric.Basic
 import Mathlib.Analysis.SpecialFunctions.Log.Basic
-import Batteries.Data.Rat
-import Mathlib.Data.Complex.Basic
+import Batteries.Data.Float.Rat
+import Mathlib.Basic.Complex.Basic
 import Mathlib.Data.Matrix.Basic
 import Mathlib.LinearAlgebra.Matrix.Determinant.Basic
 import Mathlib.LinearAlgebra.Matrix.Trace
@@ -23,7 +23,7 @@ import Mathlib.Order.Interval.Basic
 import Mathlib.Algebra.Polynomial.Basic
 import Mathlib.Algebra.Polynomial.Eval.Defs
 import Mathlib.Algebra.Polynomial.Derivative
-import Mathlib.Algebra.Polynomial.Degree.Definitions
+import Mathlib.Algebra.Polynomial.Degree.Defs
 import Mathlib.Algebra.Polynomial.Coeff
 import Mathlib.FieldTheory.SplittingField.Construction
 import Mathlib.Algebra.MvPolynomial.Basic

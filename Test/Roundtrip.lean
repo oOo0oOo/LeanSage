@@ -2,44 +2,51 @@ import LeanSage
 
 open Lean Elab Command Term Meta Polynomial MeasureTheory
 
-elab "test_roundtrip" _id:ident " : " t:term : command => do
-  let expr ← Command.liftTermElabM (Term.elabTerm t none)
-  -- logInfo s!"Testing roundtrip for: {expr}"
-  let originalStr := toString (← Command.liftTermElabM (PrettyPrinter.ppExpr expr))
-  match ← Command.liftTermElabM (LeanSage.exprToAST expr) with
-  | some ast =>
-    let leanStr := LeanSage.astToLean ast
-    if leanStr == "sorry" then
-      logError s!"✗ Converted to sorry"
-    else
-      match Parser.runParserCategory (← getEnv) `term leanStr with
-      | .error err =>
-        logError s!"✗ Parse error in generated code '{leanStr}': {err}"
-      | .ok stx =>
-        try
-          let elaborationResult ← Command.liftTermElabM do
-            try
-              let newExpr ← Term.elabTerm stx none
-              let newStr := toString (← PrettyPrinter.ppExpr newExpr)
-              return some (newExpr, newStr)
-            catch _ =>
-              return none
+private def elaborateOriginal (t : Lean.Syntax) : TermElabM Lean.Expr := do
+  let expr ← Term.elabTerm t none
+  Term.synthesizeSyntheticMVarsNoPostponing
+  instantiateMVars expr
 
-          match elaborationResult with
-          | some (_newExpr, newStr) =>
-            if originalStr != newStr then
-              logInfo s!"✓ {originalStr} → {leanStr} (syntax differs but elaborated successfully)"
-          | none =>
-            logInfo s!"✓ {originalStr} → {leanStr} (parsed successfully, elaboration issues)"
+private partial def renderWithTypes (expr : Lean.Expr) (ast : LeanSage.MathAST) : TermElabM String := do
+  match ast, expr.getAppFn, expr.getAppArgs with
+  | .eq lhs rhs, .const ``Eq _, args =>
+    let operandType := (← PrettyPrinter.ppExpr args[0]!).pretty
+    return s!"((({LeanSage.astToLean lhs}) : {operandType}) = (({LeanSage.astToLean rhs}) : {operandType}))"
+  | .membership elem set, .const ``Membership.mem _, args =>
+    let elemType := (← PrettyPrinter.ppExpr (← inferType args[args.size - 1]!)).pretty
+    let setType := (← PrettyPrinter.ppExpr (← inferType args[args.size - 2]!)).pretty
+    return s!"((({LeanSage.astToLean elem}) : {elemType}) ∈ (({LeanSage.astToLean set}) : {setType}))"
+  | .not inner, .const ``Not _, args =>
+    return s!"¬({← renderWithTypes args[0]! inner})"
+  | _, _, _ => return LeanSage.astToLean ast
 
-        catch e =>
-          let errorMsg := ← e.toMessageData.toString
-          if (errorMsg.splitOn "unknown metavariable").length > 1 then
-            logInfo s!"✓ {originalStr} → {leanStr} (successful with type inference artifacts)"
-          else
-            logError s!"✗ {errorMsg}: {repr ast} → '{leanStr}' (from original: '{originalStr}')"
-  | none =>
-    logError s!"✗ Failed to convert '{originalStr}' to AST"
+private def checkRoundtrip (expr : Lean.Expr) : TermElabM Unit := do
+  let type ← inferType expr
+  let some ast ← LeanSage.exprToAST expr | throwError "Unsupported roundtrip: {expr}"
+  -- Restore outer operand types: MathAST deliberately erases those annotations.
+  let leanStr ← renderWithTypes expr ast
+  let stx ← match Parser.runParserCategory (← getEnv) `term leanStr with
+    | .error err => throwError "Parse error in {leanStr}: {err}"
+    | .ok stx => pure stx
+  let generated ← Term.elabTerm stx (some type)
+  Term.synthesizeSyntheticMVarsNoPostponing
+  let generated ← instantiateMVars generated
+  if generated.hasMVar || !(← isDefEq expr generated) then
+    throwError "Roundtrip changed meaning: {expr} → {leanStr}"
+
+elab "test_roundtrip" _id:ident " : " t:term : command =>
+  Command.liftTermElabM do checkRoundtrip (← elaborateOriginal t)
+
+-- These explicit negative cases track type information that MathAST cannot yet
+-- preserve, or operations deliberately rejected for having different semantics.
+-- They must fail the strict check; they are never counted as successful roundtrips.
+elab "test_roundtrip_failure" _id:ident " : " t:term : command =>
+  Command.liftTermElabM do
+    let expr ← elaborateOriginal t
+    let saved ← saveState
+    let accepted ← try checkRoundtrip expr; pure true catch _ => pure false
+    saved.restore
+    if accepted then throwError "Known limitation now roundtrips; promote this case to test_roundtrip"
 
 -- Basic arithmetic
 test_roundtrip ex1 : 10 / 2 = 5
@@ -77,18 +84,18 @@ test_roundtrip set2 : (2 : ℕ) ∈ ({1, 2, 3} : Set ℕ)
 test_roundtrip set3 : Finset.card ({1, 2, 3} : Finset ℕ) = 3
 test_roundtrip set4 : ({1, 2, 3} : Set ℕ) ∩ {2, 3, 4} = {2, 3}
 test_roundtrip set5 : ({1, 2, 3} : Set ℕ) \ {2} = {1, 3}
-test_roundtrip set6 : ({1, 2} : Set ℕ) ⊆ {1, 2, 3}
+test_roundtrip_failure set6 : ({1, 2} : Set ℕ) ⊆ {1, 2, 3}
 test_roundtrip set7 : (4 : ℕ) ∉ ({1, 2, 3} : Set ℕ)
 test_roundtrip set8 : (∅ : Set ℕ) ∪ {1, 2} = {1, 2}
 test_roundtrip set9 : ({1, 2} : Set ℕ) ∩ ∅ = ∅
-test_roundtrip set10 : Finset.card (∅ : Finset ℕ) = 0
+test_roundtrip_failure set10 : Finset.card (∅ : Finset ℕ) = 0
 
 -- Matrices
 test_roundtrip matrix1 : (!![1, 2; 3, 4] : Matrix (Fin 2) (Fin 2) ℝ).det = -2
 test_roundtrip matrix2 : (!![1, 2; 3, 4] : Matrix (Fin 2) (Fin 2) ℝ).trace = 5
 test_roundtrip matrix3 : (!![1, 2; 3, 4] : Matrix (Fin 2) (Fin 2) ℝ).transpose = !![1, 3; 2, 4]
 test_roundtrip matrix4 : (1 : Matrix (Fin 2) (Fin 2) ℝ) = !![1, 0; 0, 1]
-test_roundtrip matrix5 : (!![1, 0; 0, 1] : Matrix (Fin 2) (Fin 2) ℝ).rank = 2
+test_roundtrip_failure matrix5 : (!![1, 0; 0, 1] : Matrix (Fin 2) (Fin 2) ℝ).rank = 2
 
 -- Number theory
 test_roundtrip nt1 : Nat.gcd 12 8 = 4
@@ -114,28 +121,28 @@ test_roundtrip calc5 : ∫ x in (0 : ℝ)..(1 : ℝ), x^2 = 1/3
 test_roundtrip calc6 : ∫ x in (0 : ℝ)..(Real.pi/2), Real.sin x = 1
 test_roundtrip deriv4 : deriv (fun x : ℝ => Real.cos x) 0 = 0
 test_roundtrip deriv5 : deriv (fun x : ℝ => Real.exp x) 0 = 1
-test_roundtrip fderiv_test : fderiv ℝ (fun x : ℝ => x^2) 3 = 6
+test_roundtrip_failure fderiv_test : fderiv ℝ (fun x : ℝ => x^2) 3 = 6
 test_roundtrip iterated_deriv1 : iteratedDeriv 2 (fun x : ℝ => x^4) 1 = 12
 test_roundtrip iterated_deriv2 : iteratedDeriv 3 (fun x : ℝ => Real.exp x) 0 = 1
-test_roundtrip indefinite1 : ∫ x : ℝ, x^2 ∂MeasureSpace.volume
-test_roundtrip indefinite2 : ∫ x : ℝ, Real.sin x ∂MeasureSpace.volume
+test_roundtrip_failure indefinite1 : ∫ x : ℝ, x^2 ∂MeasureSpace.volume
+test_roundtrip_failure indefinite2 : ∫ x : ℝ, Real.sin x ∂MeasureSpace.volume
 test_roundtrip double_integral1 : ∫ x in (0 : ℝ)..(1 : ℝ), ∫ y in (0 : ℝ)..(1 : ℝ), x * y = 1/4
 test_roundtrip complex_integral1 : ∫ x in (0 : ℝ)..(1 : ℝ), x^2 + 2*x + 1 = 7/3
 
 -- Polynomials
-test_roundtrip poly2 : (X^3 + X^2 + C 1 : ℝ[X]).degree = 3
+test_roundtrip_failure poly2 : (X^3 + X^2 + C 1 : ℝ[X]).degree = 3
 test_roundtrip poly3 : (X : ℝ[X]) = X
-test_roundtrip poly4 : (X^3 + X^2 + C 1 : ℝ[X]).natDegree = 3
-test_roundtrip poly5 : (C 5 * X^2 + X : ℝ[X]).leadingCoeff = 5
+test_roundtrip_failure poly4 : (X^3 + X^2 + C 1 : ℝ[X]).natDegree = 3
+test_roundtrip_failure poly5 : (C 5 * X^2 + X : ℝ[X]).leadingCoeff = 5
 test_roundtrip poly6 : derivative (X^3 + C 2 * X : ℝ[X]) = (C 3 * X^2 + C 2 : ℝ[X])
 test_roundtrip poly7 : (C 5 : ℝ[X]) = C 5
 test_roundtrip poly8 : (monomial 2 3 : ℝ[X]) = monomial 2 3
 test_roundtrip poly9 : eval₂ (RingHom.id ℝ) 3 (X + C 1 : ℝ[X]) = (4 : ℝ)
 test_roundtrip coeff_test : coeff (X^2 + C 3 * X + C 7 : ℝ[X]) 0 = 7
-test_roundtrip factor_quadratic : (X^2 - 1 : ℝ[X]).factor = (X - 1) * (X + 1)
-test_roundtrip factor_cubic : (X^3 - X : ℝ[X]).factor = X * (X - 1) * (X + 1)
-test_roundtrip roots_quadratic : (X^2 - 4 : ℝ[X]).roots = {-2, 2}
-test_roundtrip factor_perfect_square : (X^2 + 2*X + 1 : ℚ[X]).factor = (X + 1)^2
+test_roundtrip_failure factor_quadratic : (X^2 - 1 : ℝ[X]).factor = (X - 1) * (X + 1)
+test_roundtrip_failure factor_cubic : (X^3 - X : ℝ[X]).factor = X * (X - 1) * (X + 1)
+test_roundtrip_failure roots_quadratic : (X^2 - 4 : ℝ[X]).roots = {-2, 2}
+test_roundtrip_failure factor_perfect_square : (X^2 + 2*X + 1 : ℚ[X]).factor = (X + 1)^2
 
 -- Ideals
 -- test_roundtrip ideal_membership : (6 : ℤ) ∈ Ideal.span ({2, 3} : Set ℤ)
@@ -147,7 +154,7 @@ test_roundtrip fin2 : (2 : Fin 5) + (4 : Fin 5) = (1 : Fin 5)
 
 -- Rational numbers
 test_roundtrip rat1 : (3 : ℚ).num = 3
-test_roundtrip rat2 : (3/4 : ℚ).den = 4
+test_roundtrip_failure rat2 : (3/4 : ℚ).den = 4
 
 -- Integer operations
 test_roundtrip int1 : Int.ofNat 5 = 5
@@ -206,5 +213,5 @@ test_roundtrip neg1 : -(5 : ℤ) = -5
 
 -- More complex expressions
 test_roundtrip complex_expr1 : (3 + 4 * Complex.I) * (1 - 2 * Complex.I) = 11 - 2 * Complex.I
-test_roundtrip nested_sets : ({1} ∪ {2}) ∩ ({2} ∪ {3}) = {2}
+test_roundtrip nested_sets : (({1} ∪ {2}) : Set ℕ) ∩ ({2} ∪ {3}) = {2}
 test_roundtrip compound_logic : (True ∧ False) ∨ (¬False ∧ True) = True

@@ -1,4 +1,5 @@
 import Lean
+import Std.Sync.Mutex
 import Lean.Meta.Tactic.TryThis
 
 import LeanSage.Core
@@ -11,27 +12,14 @@ open Lean Elab Tactic Meta Term
 
 namespace LeanSage
 
-abbrev SageChild := IO.Process.Child { stdin := .piped, stdout := .piped, stderr := .piped }
+abbrev SageChild := IO.Process.Child { stdin := .piped, stdout := .piped, stderr := .inherit }
 
-initialize sageProcess : IO.Ref (Option SageChild) ← IO.mkRef none
+initialize sageProcess : Std.Mutex (Option SageChild) ← Std.Mutex.new none
 
-private def getSageProcess : IO SageChild := do
-  match ← sageProcess.get with
-  | some proc => return proc
-  | none =>
-    let proc ← IO.Process.spawn {
-      cmd := "sage"
-      args := #["-q"]
-      stdin := .piped
-      stdout := .piped
-      stderr := .piped
-    }
-    sageProcess.set (some proc)
-    return proc
-
-private def sageCodeTemplate : String :=
-"reset()
-import json
+private def sageWorker : String :=
+"import sys, json, contextlib
+import sage.all as sage_all
+from sage.repl.preparse import preparse
 from sympy.printing.mathml import mathml
 def to_mathml(expr):
     if hasattr(expr, '_sympy_'):
@@ -40,39 +28,50 @@ def to_mathml(expr):
         return '<list>' + ''.join(f'<item>{to_mathml(item)}</item>' for item in expr) + '</list>'
     else:
         return repr(expr)
-try:
-    {assumptions}
-    res = ({cmd})
-    a = res[-1] if isinstance(res, tuple) and 'assume' in '{cmd}' else res
-    result = {'mathml': to_mathml(a), 'result': repr(a)}
-except Exception as e:
-    result = {'error': f'{type(e).__name__}: {e}', 'mathml': None, 'result': None}
-print(json.dumps(result))
-
+for line in sys.stdin:
+    try:
+        request = json.loads(line)
+        namespace = dict(sage_all.__dict__)
+        with contextlib.redirect_stdout(sys.stderr):
+            sage_all.forget()
+            exec(preparse(request['assumptions']), namespace)
+            res = eval(preparse(request['cmd']), namespace)
+            result = {'mathml': to_mathml(res), 'result': repr(res)}
+    except Exception as e:
+        result = {'error': f'{type(e).__name__}: {e}'}
+    print(json.dumps(result), flush=True)
 "
 
-private def runSageCommand (cmd : String) (assumptions : String := ""): IO SageResponse := do
-  let proc ← getSageProcess
-  let py := sageCodeTemplate.replace "{cmd}" cmd |>.replace "{assumptions}" assumptions
-  proc.stdin.putStr py
-  proc.stdin.flush
-
-  let line ← proc.stdout.getLine
-  let jsonResponse := line.trim.replace "sage: " "" |>.replace "....: " ""
-
-  match Lean.Json.parse jsonResponse with
-  | .ok json => match json.getObjVal? "error" with
-    | .ok errorMsg =>
-      match errorMsg.getStr? with
-      | .ok msg => return .error msg
-      | .error _ => return .error "Parse error"
-    | .error _ => match json.getObjVal? "mathml", json.getObjVal? "result" with
-      | .ok mathmlJson, .ok resultJson =>
-        match mathmlJson.getStr?, resultJson.getStr? with
-        | .ok mathml, .ok result => return .success mathml result
-        | _, _ => return .error "Invalid mathml/result format"
-      | _, _ => return .error "Missing mathml/result fields"
-  | .error err => return .error s!"JSON parse error: {err}"
+/-- Serialized access to a persistent, line-framed Sage Python worker. -/
+def runSageCommand (cmd : String) (assumptions : String := "") : IO SageResponse :=
+  sageProcess.atomically do
+    try
+      let proc ← match ← get with
+        | some proc => pure proc
+        | none => do
+          let executable := (← IO.getEnv "LEANSAGE_SAGE").getD "sage"
+          let proc ← IO.Process.spawn {
+            cmd := executable, args := #["-python", "-u", "-c", sageWorker],
+            stdin := .piped, stdout := .piped, stderr := .inherit }
+          set (some proc)
+          pure proc
+      let request := (Json.mkObj [("cmd", .str cmd), ("assumptions", .str assumptions)]).compress
+      proc.stdin.putStrLn request
+      proc.stdin.flush
+      let line ← proc.stdout.getLine
+      if line.isEmpty then
+        set (none : Option SageChild)
+        return .error "Sage exited before responding"
+      match Json.parse line with
+      | .error err => return .error s!"JSON parse error: {err}"
+      | .ok json =>
+        if let .ok (.str msg) := json.getObjVal? "error" then return .error msg
+        match json.getObjVal? "mathml", json.getObjVal? "result" with
+        | .ok (.str mathml), .ok (.str result) => return .success mathml result
+        | _, _ => return .error "Missing mathml/result fields"
+    catch e =>
+      set (none : Option SageChild)
+      return .error e.toString
 
 private def handleProof (req : MathAST) (mathml plain sageCode : String) (silent : Bool) (ref : Syntax): TacticM Unit := do
   match LeanSage.analyzeProofIntent req with
@@ -92,7 +91,7 @@ private def handleProof (req : MathAST) (mathml plain sageCode : String) (silent
       | .error err => throwError s!"Invalid tactic '{tactic}': {err}"
 
   | _ =>
-    if (plain.splitOn "True").length > 1 then
+    if plain == "True" then
       if !silent then logWarning s!"SageMath OK: {sageCode} → {plain}"
       evalTactic (← `(tactic| sorry))
     else
@@ -116,7 +115,7 @@ private def buildSageCode (goalAST : MathAST) (hyps : List MathAST) : String × 
     let transformedAST := .exists vars (constraints.foldl (fun acc h => .and [acc, h]) body)
     ("", astToSage transformedAST)
   | _ =>
-    let assumptions := String.intercalate "\n    " (hyps.map astToSage)
+    let assumptions := String.intercalate "\n" (hyps.map astToSage)
     (assumptions, astToSage goalAST)
 
 elab ref:"sage": tactic => do

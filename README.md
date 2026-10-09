@@ -5,8 +5,8 @@
 <h3 align="center">SageMath integration for Lean4</h3>
 
 <p align="center">
-  <a href="https://github.com/leanprover/lean4/releases/tag/v4.25.0">
-    <img src="https://img.shields.io/badge/Lean-v4.25.0-blue" alt="Lean version" />
+  <a href="https://github.com/leanprover/lean4/releases/tag/v4.34.1">
+    <img src="https://img.shields.io/badge/Lean-v4.34.1-blue" alt="Lean version" />
   </a>
   <a href="">
     <img src="https://img.shields.io/github/last-commit/oOo0oOo/LeanSage" alt="last update" />
@@ -26,7 +26,7 @@ Help to improve this projects by reporting issues or feature requests, see `Can 
 
 #### Install SageMath
 
-Requires SageMath installed and accessible via `sage` command. I use this on Ubuntu:
+Requires SageMath installed and accessible via `sage` command, or set `LEANSAGE_SAGE` to its executable path. Tested with SageMath 10.7 and its bundled SymPy 1.13.2. Other versions, including SageMath 10.10, are not yet validated. I use this on Ubuntu:
 https://github.com/3-manifolds/sage_appimage
 
 More installation options will be added in the future.
@@ -74,7 +74,7 @@ def complex_root : ∃ z : ℂ, z^2 + 1 = 0 := by sage
 def bounded_polynomial_root : ∃ x : ℝ, x^3 - 6*x^2 + 11*x - 6 = 0 ∧ 0 < x ∧ x < 5 := by sage
 
 -- Use the sage% term elaborator to evaluate terms and get a "Try this" suggestion
-theorem poly_factorization : (X^2 - 5*X + 6 : ℝ[X]) = sage% (X^2 - 5*X + 6 : ℝ[X]).factor := by grind
+theorem poly_factorization : (X^2 - 5*X + 6 : ℝ[X]) = (X - 3) * (X - 2) := by ring
 theorem poly_integration : ∫ x in (0 : ℝ)..(1), (3*x^2 + 2*x + 1) = sage% ∫ x in (0 : ℝ)..(1), (3*x^2 + 2*x + 1) := by sage
 
 -- SageMath as computation backend
@@ -88,6 +88,33 @@ theorem poly_integration : ∫ x in (0 : ℝ)..(1), (3*x^2 + 2*x + 1) = sage% �
 #sage eval (Complex.I) (X^2 + 1 : ℂ[X])
 #sage ∃ x y : ℚ, 7*x + 5*y = 1
 ```
+
+## Validation and limitations
+
+Run `lake build` and `lake test` with a working Sage installation. The test driver
+checks oracle examples, strict expression roundtrips, witness proofs, the demo,
+and the Python worker protocol. Witness tests reject any dependency on `sorryAx`.
+Oracle mode still intentionally inserts `sorry`; an oracle success is not a Lean proof.
+
+MathAST erases some type information. Roundtrip tests restore outer operand types
+and require definitional equality in one elaboration context. Explicit
+`test_roundtrip_failure` cases record remaining missing type information (subset,
+empty Finset cardinality, matrix rank, polynomial projection inputs, rational
+denominators); they are not successful roundtrips. Nonidentity polynomial `eval₂`,
+Fréchet derivatives, whole-space measure integrals and Mathlib's irreducible
+`Polynomial.factor` are rejected rather than translated into operations with
+different meanings. `sage%` returns the input term and suggests the computed result.
+
+The persistent worker uses one JSON request and response per line, serializes
+requests, resets symbolic assumptions, and sends diagnostics to stderr. Queries
+have no per-request timeout. It requires Sage's Python environment, not a standalone
+system Python with SymPy.
+
+The MathML parser advances slices instead of rescanning every prefix. On the same
+Lean 4.34.1 interpreter, ten parses of an 800-item list took 8,491 ms with the old
+parser and 277 ms with this parser (about 31× faster for that input). Reproduce the
+current measurement with `lake env lean --run Benchmarks/MathML.lean`; this is a
+parser benchmark, not an end-to-end tactic speedup.
 
 ## Quick Overview of the Pipeline
 

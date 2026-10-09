@@ -1,11 +1,12 @@
 import LeanSage
 
 set_option leansage.silent true
+set_option maxErrors 1000
 open Polynomial
 
 macro "test_sage" e:term " : " t:term : command =>
   `(/--
-warning: declaration uses 'sorry'
+warning: declaration uses `sorry`
 -/
 #guard_msgs in
 example : $t := by sage)
@@ -15,6 +16,11 @@ macro "test_sage_witness" e:term " : " t:term : command =>
 
 macro "test_sage_counterexample" e_:term " : " t:term : command =>
   `(example : $t := by sage)
+
+macro "test_sage_unsupported" _e:term " : " t:term : command =>
+  `(/-- error: Failed to convert goal to AST -/
+    #guard_msgs in
+    example : $t := by sage)
 
 -- Basic arithmetic
 test_sage ex1 : 10 / 2 = 5
@@ -89,11 +95,11 @@ test_sage calc5 : ∫ x in (0 : ℝ)..(1 : ℝ), x^2 = 1/3
 test_sage calc6 : ∫ x in (0 : ℝ)..(Real.pi/2), Real.sin x = 1
 test_sage deriv4 : deriv (fun x : ℝ => Real.cos x) 0 = 0
 test_sage deriv5 : deriv (fun x : ℝ => Real.exp x) 0 = 1
-test_sage fderiv_test : fderiv ℝ (fun x : ℝ => x^2) 3 = 6
+test_sage_unsupported fderiv_test : fderiv ℝ (fun x : ℝ => x^2) 3 = 6
 test_sage iterated_deriv1 : iteratedDeriv 2 (fun x : ℝ => x^4) 1 = 12
 test_sage iterated_deriv2 : iteratedDeriv 3 (fun x : ℝ => Real.exp x) 0 = 1
-test_sage indefinite1 : ∫ x : ℝ, x^2 ∂volume = x^3/3
-test_sage indefinite2 : ∫ x : ℝ, Real.sin x ∂volume = -Real.cos x
+test_sage_unsupported indefinite1 : ∫ x : ℝ, x^2 ∂volume = x^3/3
+test_sage_unsupported indefinite2 : ∫ x : ℝ, Real.sin x ∂volume = -Real.cos x
 test_sage double_integral1 : ∫ x in (0 : ℝ)..(1 : ℝ), ∫ y in (0 : ℝ)..(1 : ℝ), x * y = 1/4
 test_sage complex_integral1 : ∫ x in (0 : ℝ)..(1 : ℝ), x^2 + 2*x + 1 = 7/3
 
@@ -108,10 +114,10 @@ test_sage poly7 : (C 5 : ℝ[X]) = C 5
 test_sage poly8 : (monomial 2 3 : ℝ[X]) = monomial 2 3
 test_sage poly9 : eval₂ (RingHom.id ℝ) 3 (X + C 1 : ℝ[X]) = (4 : ℝ)
 test_sage coeff_test : coeff (X^2 + C 3 * X + C 7 : ℝ[X]) 0 = 7
-test_sage factor_quadratic : (X^2 - 1 : ℝ[X]).factor = (X - 1) * (X + 1)
-test_sage factor_cubic : (X^3 - X : ℝ[X]).factor = X * (X - 1) * (X + 1)
+test_sage_unsupported factor_quadratic : (X^2 - 1 : ℝ[X]).factor = (X - 1) * (X + 1)
+test_sage_unsupported factor_cubic : (X^3 - X : ℝ[X]).factor = X * (X - 1) * (X + 1)
 test_sage roots_quadratic : (X^2 - 4 : ℝ[X]).roots = {-2, 2}
-test_sage factor_perfect_square : (X^2 + 2*X + 1 : ℚ[X]).factor = (X + 1)^2
+test_sage_unsupported factor_perfect_square : (X^2 + 2*X + 1 : ℚ[X]).factor = (X + 1)^2
 
 -- Ideals
 test_sage ideal_membership : (6 : ℤ) ∈ Ideal.span ({2, 3} : Set ℤ)

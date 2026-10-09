@@ -198,7 +198,7 @@ mutual
       | .const ``Prod.snd _, [_, _, pair] => processUnaryFunc pair "snd"
 
       -- Set operations
-      | .const ``Membership.mem _, [_, _, _, elem, set] => do
+      | .const ``Membership.mem _, [_, _, _, set, elem] => do
         let some elemAST ← exprToAST elem | return none
         let some setAST ← exprToAST set | return none
         match elemAST, setAST with
@@ -300,13 +300,11 @@ mutual
       | .const ``Polynomial.eval _, [_, _, x, p] => processBinaryFunc p x "eval"
       | .const ``Polynomial.eval₂ _, args => do
         if args.length >= 3 then
-          let x := args[args.length - 2]!
-          let p := args[args.length - 1]!
-          let some pAST ← exprToAST p | return none
-          let some xAST ← exprToAST x | return none
-          return some (.func "eval" [pAST, xAST])
-        else
-          return none
+          let hom := args[args.length - 3]!
+          -- General ring homomorphisms cannot be erased during translation.
+          if !hom.getAppFn.isConstOf ``RingHom.id then return none
+          processBinaryFunc args[args.length - 1]! args[args.length - 2]! "eval"
+        else return none
 
       | .const ``Polynomial.degree _, args => do
         if args.length >= 1 then
@@ -316,7 +314,7 @@ mutual
           return none
       | .const ``Polynomial.natDegree _, args => do
         match args with
-        | [_, _, p] => processUnaryFunc p "degree"
+        | [_, _, p] => processUnaryFunc p "natDegree"
         | _ => return none
       | .const ``Polynomial.leadingCoeff _, args => do
         match args with
@@ -326,10 +324,8 @@ mutual
         match args with
         | [_, _, p] => processUnaryFunc p "polyDerivative"
         | _ => return none
-      | .const ``Polynomial.factor _, args => do
-        match args with
-        | [_, _, p] => processUnaryFunc p "factor"
-        | _ => return none
+      -- Mathlib chooses one irreducible factor; Sage factor() has different semantics.
+      | .const ``Polynomial.factor _, _ => return none
       | .const ``Polynomial.roots _, args => do
         match args with
         | [_, _, _, p] => processUnaryFunc p "roots"
@@ -357,25 +353,8 @@ mutual
             let derivAST := .derivative fAST "x" 1
             return some (.func "subs" [derivAST, .eq (.var "x" "Real") xAST])
         | _ => return none    -- Multivariable derivatives
-      | .const ``fderiv _, args => do
-        match args with
-        | [_, _, _, _, _, _, _, _, _, _, f, x] => do
-          let some fAST ← exprToAST f | return none
-          let some xAST ← exprToAST x | return none
-          match fAST, xAST with
-          | .lambda varName _ bodyAST, .var _ _ =>
-            return some (.derivative bodyAST varName 1)
-          | .lambda varName _ bodyAST, _ =>
-            let derivAST := .derivative bodyAST varName 1
-            return some (.func "subs" [derivAST, .eq (.var varName "Real") xAST])
-          | _, .var varName _ =>
-            return some (.derivative fAST varName 1)
-          | _, _ =>
-            let derivAST := .derivative fAST "x" 1
-            return some (.func "subs" [derivAST, .eq (.var "x" "Real") xAST])
-        | _ => return none
-
-      -- Higher-order derivatives
+      -- A Fréchet derivative is a continuous linear map, not a scalar derivative.
+      | .const ``fderiv _, _ => return none
       | .const ``iteratedDeriv _, args => do
         match args with
         | [_, _, _, _, _, _, n, f, x] => do
@@ -436,16 +415,8 @@ mutual
           return none
 
       -- Volume integrals (indefinite integrals)
-      | .const ``MeasureTheory.integral _, args => do
-        let rec findLambda (args : List Expr) : MetaM (Option MathAST) := do
-          match args with
-          | [] => return none
-          | arg :: rest =>
-            match ← exprToAST arg with
-            | some (.lambda varName _ bodyAST) =>
-              return some (.integral bodyAST varName none none)
-            | _ => findLambda rest
-        findLambda args
+      -- An integral over all of a measure space is not an antiderivative.
+      | .const ``MeasureTheory.integral _, _ => return none
 
       -- Matrix operations
       | .const ``Matrix.det _, [_, _, _, _, _, M] => processUnaryFunc M "det"
@@ -475,6 +446,14 @@ mutual
               let coeff := args[args.length - 1]!
               let some coeffAST ← exprToAST coeff | return none
               return some (.polynomialC coeffAST)
+          | .const ``Polynomial.coeff _ =>
+            if _argArgs.length >= 1 then
+              return ← processBinaryFunc _argArgs[_argArgs.length - 1]! args[args.length - 1]! "coeff"
+            else return none
+          | .const ``Polynomial.monomial _ =>
+            if _argArgs.length >= 1 then
+              return ← processBinaryFunc _argArgs[_argArgs.length - 1]! args[args.length - 1]! "monomial"
+            else return none
           | .const ``Polynomial.derivative _ =>
             if args.length >= 1 then
               let poly := args[args.length - 1]!

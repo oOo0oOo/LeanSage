@@ -30,7 +30,7 @@ def complex_root : ∃ z : ℂ, z^2 + 1 = 0 := by sage
 def bounded_polynomial_root : ∃ x : ℝ, x^3 - 6*x^2 + 11*x - 6 = 0 ∧ 0 < x ∧ x < 5 := by sage
 
 -- Use the sage% term elaborator to evaluate terms and get a "Try this" suggestion
-theorem poly_factorization : (X^2 - 5*X + 6 : ℝ[X]) = sage% (X^2 - 5*X + 6 : ℝ[X]).factor := by grind
+theorem poly_factorization : (X^2 - 5*X + 6 : ℝ[X]) = (X - 3) * (X - 2) := by ring
 theorem poly_integration : ∫ x in (0 : ℝ)..(1), (3*x^2 + 2*x + 1) = sage% ∫ x in (0 : ℝ)..(1), (3*x^2 + 2*x + 1) := by sage
 
 -- SageMath as computation backend

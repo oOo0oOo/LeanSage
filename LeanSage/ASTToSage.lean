@@ -88,12 +88,13 @@ partial def astToSage (ast : MathAST) : String :=
       s!"({argStrs[0]!}).radical()"
     | "eval" =>
       s!"({argStrs[0]!}).substitute(X={argStrs[1]!})"
-    | "degree" =>
+    | "degree" | "natDegree" =>
       s!"({argStrs[0]!}).degree(X)"
     | "leadingCoeff" =>
       s!"({argStrs[0]!}).leading_coefficient(X)"
     | "coeff" =>
       s!"({argStrs[0]!}).coefficient(X, {argStrs[1]!})"
+    | "monomial" => s!"({argStrs[1]!} * var(\"X\")^{argStrs[0]!})"
     | "C" => argStrs[0]!
     | "polyDerivative" =>
       s!"diff({argStrs[0]!}, X)"
@@ -222,7 +223,7 @@ partial def astToSage (ast : MathAST) : String :=
         | "Real" | "ℝ" => "RR"
         | _ => "ZZ"
       s!"{ringPrefix}.ideal({genList}).reduce({astToSage elem}) == 0"
-    | _ => s!"{astToSage set} in {astToSage elem}"
+    | _ => s!"{astToSage elem} in {astToSage set}"
   | .subset lhs rhs => s!"{astToSage lhs}.issubset({astToSage rhs})"
   | .union lhs rhs => s!"{astToSage lhs}.union({astToSage rhs})"
   | .intersection lhs rhs => s!"{astToSage lhs}.intersection({astToSage rhs})"

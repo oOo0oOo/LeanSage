@@ -66,7 +66,7 @@ partial def astToLean (ast : MathAST) : String :=
   | .union lhs rhs => s!"({astToLean lhs} ∪ {astToLean rhs})"
   | .intersection lhs rhs => s!"({astToLean lhs} ∩ {astToLean rhs})"
   | .setDiff lhs rhs => s!"({astToLean lhs} \\ {astToLean rhs})"
-  | .membership set elem => s!"({astToLean elem} ∈ {astToLean set})"
+  | .membership elem set => s!"({astToLean elem} ∈ {astToLean set})"
   | .subset lhs rhs => s!"({astToLean lhs} ⊆ {astToLean rhs})"
   | .set elems =>
     let elemStrs := elems.map astToLean
@@ -93,7 +93,7 @@ partial def astToLean (ast : MathAST) : String :=
   | .matrix rows =>
     let rowStrs := rows.map fun row =>
       let elemStrs := row.map astToLean
-      s!"![{String.intercalate ", " elemStrs}]"
+      String.intercalate ", " elemStrs
     s!"!![{String.intercalate "; " rowStrs}]"
 
   -- Quantifiers
@@ -172,7 +172,11 @@ partial def astToLean (ast : MathAST) : String :=
       else s!"C ({coeffStr}) * {var} ^ {degreeStr}"
 
     -- Remove subs function
-  | .func "subs" [expr, _eq] => astToLean expr
+  | .func "subs" [.derivative expr var order, .eq _ point] =>
+    let fn := if order == 1 then "deriv" else s!"iteratedDeriv {order}"
+    s!"{fn} (fun {var} => {astToLean expr}) ({astToLean point})"
+  | .func "subs" [expr, .eq (.var var _) value] =>
+    s!"(fun {var} => {astToLean expr}) ({astToLean value})"
 
   -- Rational number functions
   | .func "numer" [arg] => s!"({astToLean arg}).num"

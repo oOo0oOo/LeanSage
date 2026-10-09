@@ -29,7 +29,7 @@ private def concretize (ast : MathAST) : MathAST :=
   let rec eval (ast : MathAST) : MathAST :=
     match ast with
     | .var name _typ =>
-      if (name.startsWith "r" || name.startsWith "t") && (name.drop 1).toList.all Char.isDigit then
+      if (name.startsWith "r" || name.startsWith "t") && (name.drop 1).toString.toList.all Char.isDigit then
         MathAST.nat 0
       else ast
     | .add args => .add (args.map eval)

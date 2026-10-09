@@ -7,68 +7,42 @@ private inductive XMLNode where
   | text (content : String)
   | selfClosing (tag : String)
 
-private partial def parseXMLElement (s : String) : Option (String × String × String) :=
-  if !s.startsWith "<" then none
-  else
-    let s' := s.drop 1
-    match s'.splitOn ">" with
-    | tagPart :: rest =>
-      let cleanTag := if tagPart.endsWith "/" then tagPart.dropRight 1 else tagPart
-      let content := String.intercalate ">" rest
-      let closeTag := s!"</{cleanTag}>"
-
-      -- Find the MATCHING closing tag by counting nesting
-      let rec findMatchingClose (remaining : String) (depth : Nat) (pos : Nat) : Option (Nat × String) :=
-        if pos >= remaining.length then none
-        else if remaining.drop pos |>.startsWith s!"<{cleanTag}>" then
-          findMatchingClose remaining (depth + 1) (pos + cleanTag.length + 1)
-        else if remaining.drop pos |>.startsWith closeTag then
-          if depth == 0 then
-            some (pos, remaining.drop (pos + closeTag.length))
-          else
-            findMatchingClose remaining (depth - 1) (pos + closeTag.length)
-        else
-          findMatchingClose remaining depth (pos + 1)
-
-      match findMatchingClose content 0 0 with
-      | some (endPos, remaining) =>
-        let inner := content.take endPos
-        some (cleanTag, inner, remaining)
-      | none => some (cleanTag, content, "")
-    | [] => none
-
-private partial def parseXML (s : String) : List XMLNode :=
-  let s := s.trim
-  if s.isEmpty then []
-  else if s.startsWith "<" then
-    if s.startsWith "</" then
-      let afterClosingTag := s.dropWhile (· != '>') |>.drop 1
-      parseXML afterClosingTag
+-- Advance slices through the input once instead of rescanning prefixes for each character.
+private partial def parseNodes (input : String.Slice) (closing : Option String) :
+    Option (List XMLNode × String.Slice) := do
+  let mut rest := input.trimAscii
+  let mut nodes : List XMLNode := []
+  while !rest.isEmpty do
+    if rest.startsWith "</" then
+      let some tag := closing | failure
+      unless rest.startsWith s!"</{tag}>" do failure
+      return (nodes.reverse, rest)
+    if rest.startsWith "<" then
+      let tagPart := rest.drop 1 |>.takeWhile (· != '>')
+      let tail := rest.dropWhile (· != '>')
+      if tail.isEmpty then failure
+      let afterTag := tail.drop 1
+      let selfClosing := tagPart.endsWith "/"
+      let namePart := if selfClosing then tagPart.dropEnd 1 else tagPart
+      let tag := (namePart.takeWhile (!Char.isWhitespace ·)).toString
+      if tag.isEmpty then failure
+      if selfClosing then
+        nodes := .selfClosing tag :: nodes
+        rest := afterTag.trimAscii
+      else
+        let (children, close) ← parseNodes afterTag (some tag)
+        nodes := .element tag children :: nodes
+        rest := (close.drop (tag.length + 3)).trimAscii
     else
-      let firstTagEnd := s.takeWhile (· != '>')
-      if firstTagEnd.endsWith "/" then
-        let tagName := firstTagEnd.drop 1 |>.dropRight 1
-        let remaining := s.dropWhile (· != '>') |>.drop 1
-        XMLNode.selfClosing tagName :: parseXML remaining
-      else
-        match parseXMLElement s with
-        | some (tag, inner, remaining) =>
-          let children := parseXML inner
-          XMLNode.element tag children :: parseXML remaining
-        | none => [XMLNode.text s]
-  else
-    let nextTagPos := s.toList.findIdx? (· == '<')
-    match nextTagPos with
-    | none => [XMLNode.text s]
-    | some pos =>
-      if pos == 0 then parseXML s
-      else
-        let textPart := s.take pos
-        let remaining := s.drop pos
-        if textPart.trim.isEmpty then
-          parseXML remaining
-        else
-          XMLNode.text textPart :: parseXML remaining
+      let text := rest.takeWhile (· != '<')
+      nodes := .text text.toString :: nodes
+      rest := (rest.dropWhile (· != '<')).trimAscii
+  if closing.isSome then failure
+  return (nodes.reverse, rest)
+
+private def parseXML (input : String) : Option (List XMLNode) := do
+  let (nodes, _) ← parseNodes input.toSlice none
+  return nodes
 
 private def stringContains (s : String) (substr : String) : Bool :=
   (s.splitOn substr).length > 1
@@ -81,19 +55,19 @@ private def getLastAfterColon (s : String) : String :=
 private partial def xmlToAST (node : XMLNode) : Option MathAST :=
   match node with
   | XMLNode.text content =>
-    if content.trim.isEmpty then none  -- Filter out empty text
-    else parseLeaf content.trim
+    if content.trimAscii.isEmpty then none  -- Filter out empty text
+    else parseLeaf content.trimAscii.toString
   | XMLNode.selfClosing "pi" => some MathAST.pi
   | XMLNode.selfClosing "e" => some MathAST.e
   | XMLNode.selfClosing "imaginaryi" => some MathAST.complexI
   | XMLNode.selfClosing "int" => some (MathAST.string "int")
   | XMLNode.selfClosing tag =>
-    if tag.trim.isEmpty then none  -- Filter out empty tags
+    if tag.trimAscii.isEmpty then none  -- Filter out empty tags
     else
       let result := some (MathAST.string tag)
       result
   | XMLNode.element tag children =>
-    if tag.trim.isEmpty then none  -- Filter out empty tags
+    if tag.trimAscii.isEmpty then none  -- Filter out empty tags
     else
       let childASTs := children.filterMap xmlToAST
       match tag with
@@ -194,7 +168,7 @@ where
   getTextContent (nodes : List XMLNode) : String :=
     String.join (nodes.map fun node =>
       match node with
-      | XMLNode.text s => s.trim
+      | XMLNode.text s => s.trimAscii.toString
       | XMLNode.element tag children =>
         if stringContains tag ":" then
           let cleanTag := getLastAfterColon tag
@@ -266,8 +240,8 @@ where
       MathAST.string "error"
 
 -- Main entry point
-partial def mathMLToAST (input : String) : Option MathAST :=
-  let nodes := parseXML input
+partial def mathMLToAST (input : String) : Option MathAST := do
+  let nodes ← parseXML input
   match nodes with
   | [single] => xmlToAST single
   | multiple => some (MathAST.list (multiple.filterMap xmlToAST))
