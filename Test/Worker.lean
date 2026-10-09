@@ -18,6 +18,10 @@ def main : IO Unit := do
   | .error _ => pure ()
   | .success _ _ => throw <| IO.userError "Failed to reject an invalid command"
   expect "factorial(5)" "120"
+  match ← runSageCommand "__import__('os')._exit(0)" with
+  | .error _ => pure ()
+  | .success _ _ => throw <| IO.userError "Failed to notice a dead worker"
+  expect "factorial(5)" "120"
   for malformed in ["<cn>1</ci>", "<cn>1", "<cn", "<math><cn>1</cn>"] do
     if (mathMLToAST malformed).isSome then
       throw <| IO.userError s!"Accepted malformed MathML: {malformed}"

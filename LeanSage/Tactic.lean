@@ -51,15 +51,21 @@ def runSageCommand (cmd : String) (assumptions : String := "") : IO SageResponse
         | none => do
           let executable := (← IO.getEnv "LEANSAGE_SAGE").getD "sage"
           let proc ← IO.Process.spawn {
-            cmd := executable, args := #["-python", "-u", "-c", sageWorker],
+            -- The AppImage launcher expands $@ without quotes. Keep the bootstrap
+            -- argument free of whitespace and send the actual worker through stdin.
+            cmd := executable, args := #["-python", "-u", "-c",
+              "exec(__import__('json').loads(__import__('sys').stdin.readline()))"],
             stdin := .piped, stdout := .piped, stderr := .inherit }
           set (some proc)
+          proc.stdin.putStrLn (Json.str sageWorker).compress
+          proc.stdin.flush
           pure proc
       let request := (Json.mkObj [("cmd", .str cmd), ("assumptions", .str assumptions)]).compress
       proc.stdin.putStrLn request
       proc.stdin.flush
       let line ← proc.stdout.getLine
       if line.isEmpty then
+        let _ ← proc.wait
         set (none : Option SageChild)
         return .error "Sage exited before responding"
       match Json.parse line with
@@ -70,7 +76,10 @@ def runSageCommand (cmd : String) (assumptions : String := "") : IO SageResponse
         | .ok (.str mathml), .ok (.str result) => return .success mathml result
         | _, _ => return .error "Missing mathml/result fields"
     catch e =>
+      let failed : Option SageChild ← get
       set (none : Option SageChild)
+      if let some child := failed then
+        try child.kill; let _ ← child.wait; pure () catch _ => pure ()
       return .error e.toString
 
 private def handleProof (req : MathAST) (mathml plain sageCode : String) (silent : Bool) (ref : Syntax): TacticM Unit := do
